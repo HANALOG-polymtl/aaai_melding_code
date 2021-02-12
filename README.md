@@ -13,6 +13,8 @@ Bryan Wilder, Bistra Dilkina, Milind Tambe. Melding the Data-Decisions Pipeline:
 
 Included are differentiable solvers for LPs and submodular maximization, along with code to run the experiments in the paper. You can [download](https://bryanwilder.github.io/files/data_decisions_benchmarks.zip) the datasets from my website.
 
+UPDATE: For the cora experiments, you can find the features [here](https://drive.google.com/file/d/1WWLgq552YJy_1HUw0GqyXO34k1-OYJxS/view?usp=sharing) and the graph structures [here](https://drive.google.com/file/d/1WWLgq552YJy_1HUw0GqyXO34k1-OYJxS/view?usp=sharing).
+
 # Dependencies
 * The linear programming experiments use the [Gurobi](http://www.gurobi.com/) solver.
 * All code in the directory qpthlocal is derived from the [qpth](https://github.com/locuslab/qpth) library. It has been modified to support use of the Gurobi solver in the forward pass.
