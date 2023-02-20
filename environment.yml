@@ -1,0 +1,13 @@
+name: aaai
+
+dependencies:
+  - python
+  - pip
+  - pytorch
+  - numpy
+  - scipy
+  - gurobi
+  - numba
+  - networkx
+  - pip:
+    - cvxpy

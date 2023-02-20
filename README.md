@@ -16,5 +16,13 @@ Included are differentiable solvers for LPs and submodular maximization, along w
 UPDATE: For the cora experiments, you can find the features [here](https://drive.google.com/file/d/1WWLgq552YJy_1HUw0GqyXO34k1-OYJxS/view?usp=sharing) and the graph structures [here](https://drive.google.com/file/d/1dW_vLvuzLLYK2vpSVDHifNVMUdfKhK3H/view?usp=sharing).
 
 # Dependencies
-* The linear programming experiments use the [Gurobi](http://www.gurobi.com/) solver.
+## Installation
+
+You can create a virtual environment using conda as followed
+
+```
+conda env create -f environment.yml
+```
+
+* The linear programming experiments use the [Gurobi](http://www.gurobi.com/) solver. Please obtain a licensed version of Gurobi to
 * All code in the directory qpthlocal is derived from the [qpth](https://github.com/locuslab/qpth) library. It has been modified to support use of the Gurobi solver in the forward pass.
