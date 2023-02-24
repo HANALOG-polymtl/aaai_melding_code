@@ -1,5 +1,11 @@
 
 import torch
+import numpy as np
+from torch.autograd import Variable
+import scipy as sp
+import scipy.sparse
+import scipy.linalg
+
 class ContinuousOptimizer(torch.autograd.Function):
     """
     pytorch module for differentiable submodular maximization. The forward pass 
@@ -7,20 +13,27 @@ class ContinuousOptimizer(torch.autograd.Function):
     that optimal x wrt the parameters.
     """
     
-    def __init__(self, optimize_func, get_dgradf_dparams, get_hessian=None, max_x = 1.):
+    '''def __init__(self, optimize_func, get_dgradf_dparams, verbose=True, get_hessian=None, max_x = 1.):
         super(ContinuousOptimizer, self).__init__()
         self.optimize_func = optimize_func
         self.get_dgradf_dparams = get_dgradf_dparams
-        self.verbose = True
+        self.verbose = verbose
         self.get_hessian = get_hessian
         self.all_xs = []
-        self.max_x = max_x
-        
-    def forward(self, params):
+        self.max_x = max_x'''
+    
+    @staticmethod
+    def forward(self, params, optimize_func, get_dgradf_dparams, verbose=True, get_hessian=None, max_x = 1.):
         """
         Computes the optimal x using the supplied optimizer. 
         """
-        import numpy as np
+        self.optimize_func = optimize_func
+        self.get_dgradf_dparams = get_dgradf_dparams
+        self.verbose = verbose
+        self.get_hessian = get_hessian
+        self.all_xs = []
+        self.max_x = max_x
+
         with torch.enable_grad():
             x = self.optimize_func(params, verbose=self.verbose)
         self.x =  x.data
@@ -28,14 +41,13 @@ class ContinuousOptimizer(torch.autograd.Function):
         self.params = params
         self.xgrad = x.grad.data
         return x.data
-
+    
+    @staticmethod
     def backward(self, grad_output):
         """
         Differentiates the optimal x returned by the forward pass with respect
         to the ratings matrix that was given as input.
         """
-        import numpy as np
-        from torch.autograd import Variable
         x = self.x
         params = self.params
         xgrad = self.xgrad
@@ -56,10 +68,6 @@ class ContinuousOptimizer(torch.autograd.Function):
         
         params: the current parameter settings
         '''
-        import numpy as np
-        import scipy as sp
-        import scipy.sparse
-        import scipy.linalg
         n = len(x)
         #first get the optimal dual variables via the KKT conditions
         #dual variable for constraint sum(x) <= k

@@ -34,7 +34,7 @@ for num_items in instance_sizes:
     Ps[num_items] = [torch.from_numpy(P).long() for P in Ps_size]
     data[num_items] = [torch.from_numpy(x).float() for x in data_size]
     w = np.ones(num_targets, dtype=np.float32)
-    f_true[num_items] = [CoverageInstanceMultilinear(P, w, True) for P in Ps[num_items]]
+    f_true[num_items] = [CoverageInstanceMultilinear(P, w, True) for P in Ps[num_items]] #TODO: modify this (deprecated)
     
 
 num_repetitions = 0

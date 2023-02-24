@@ -9,11 +9,11 @@ import pickle
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--layers', type=int, default=2)
+parser.add_argument('--layers', type=int, default=2) # you can change the number of layers
 
 args = parser.parse_args()
 num_layers = args.layers
-print(num_layers)
+print("Number of layers: ", num_layers)
 
 
 def make_matching_matrix(n):
@@ -43,15 +43,15 @@ def make_matching_matrix(n):
         b[u] = 1
     
     return A, b
-    
-            
-                  
+
+## LOADING THE DATA               
 load = True
 if load:
-    Ps = torch.load('../cora_graphs_bipartite.pt')
-    data = torch.load('../cora_features_bipartite.pt')
+    Ps = torch.load('benchmarks_release/cora_graphs_bipartite.pt')
+    data = torch.load('benchmarks_release/cora_features_bipartite.pt')
     Ps = Ps.view(*Ps.shape, 1)
 
+## TRAINING
 activation = 'relu'
 intermediate_size=500
 num_features = data.shape[2]
@@ -71,7 +71,7 @@ for alg in algs:
     ce_loss[alg] = np.zeros((num_iters))
     opt[alg] = np.zeros((num_iters))
 
-for iter_idx in range(num_iters):
+for iter_idx in range(num_iters): #All results are averaged over 30 random splits
     test = random.sample(list(range(n_instances)), int(0.2*n_instances))
     train = [i for i in range(n_instances) if i not in test]
     two_stage_iters = len(train)
@@ -79,6 +79,7 @@ for iter_idx in range(num_iters):
     
         
     def make_fc(num_layers, num_features, num_targets, regularizers = False):
+        '''Building the fully connected neural network'''
         if num_layers > 1:
             if activation == 'relu':
                 activation_fn = nn.ReLU
@@ -222,7 +223,7 @@ for iter_idx in range(num_iters):
     #    print(n_train)
     #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
     #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-        x = QPFunction(verbose=False, solver=QPSolvers.GUROBI, model_params=model_params)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
     #    return x
         loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
         net.train()
@@ -238,7 +239,7 @@ for iter_idx in range(num_iters):
     #    print(n_train)
     #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
     #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-        x = QPFunction(verbose=False, solver=QPSolvers.GUROBI, model_params=model_params)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
     #    return x
         loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
         return loss
@@ -254,7 +255,7 @@ for iter_idx in range(num_iters):
     #    print(n_train)
     #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
     #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-        x = QPFunction(verbose=False, solver=QPSolvers.GUROBI, model_params=model_params)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
     #    return x
 #        print(x)
 #        print(x.sum())

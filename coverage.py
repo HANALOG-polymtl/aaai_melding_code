@@ -45,7 +45,8 @@ class CoverageInstanceMultilinear(torch.autograd.Function):
     P and weights w. Forward pass computes the objective value (if evaluate_forward
     is true). Backward computes the gradients wrt decision variables x.
     """
-    def __init__(self, P, w, evaluate_forward):
+    
+    '''def __init__(self, P, w, evaluate_forward):
         super(CoverageInstanceMultilinear, self).__init__()
         self.evaluate_forward = evaluate_forward
         if type(P) != np.ndarray:
@@ -53,9 +54,17 @@ class CoverageInstanceMultilinear(torch.autograd.Function):
         if type(w) != np.ndarray:
             w = w.detach().numpy()
         self.P = P
+        self.w = w'''
+
+    @staticmethod    
+    def forward(self, x, P, w, evaluate_forward):
+        self.evaluate_forward = evaluate_forward
+        if type(P) != np.ndarray:
+            P = P.detach().numpy()
+        if type(w) != np.ndarray:
+            w = w.detach().numpy()
+        self.P = P
         self.w = w
-        
-    def forward(self, x):
         self.x = x.detach().numpy()
         if self.evaluate_forward:
             out = objective_coverage(self.x, self.P, self.w)
@@ -63,6 +72,7 @@ class CoverageInstanceMultilinear(torch.autograd.Function):
             out = -1
         return torch.tensor(out).float()
                     
+    @staticmethod  
     def backward(self, grad_in):
         grad = gradient_coverage(self.x, self.P, self.w)
         return torch.from_numpy(grad).float()*grad_in.float()
@@ -78,7 +88,7 @@ def optimize_coverage_multilinear(P, w, verbose=True, k=10, c=1., minibatch_size
     from utils import project_uniform_matroid_boundary as project
     
     #objective which will provide gradient evaluations
-    coverage = CoverageInstanceMultilinear(P, w, verbose)
+    coverage = CoverageInstanceMultilinear()
     #decision variables
     x = torch.zeros(P.shape[0], requires_grad = True)
     #set up the optimizer
@@ -86,7 +96,7 @@ def optimize_coverage_multilinear(P, w, verbose=True, k=10, c=1., minibatch_size
     optimizer = torch.optim.SGD([x], momentum = 0.9, lr = learning_rate, nesterov=True)
     #take projected stochastic gradient steps
     for t in range(10):
-        loss = -coverage(x)
+        loss = -coverage.apply(x, P, w, verbose)
         if verbose:
             print(t, -loss.item())
         optimizer.zero_grad()

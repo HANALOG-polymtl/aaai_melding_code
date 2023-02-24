@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import time
 from coverage import optimize_coverage_multilinear, CoverageInstanceMultilinear, dgrad_coverage, hessian_coverage
 import pickle
 from functools import partial
@@ -9,11 +10,14 @@ import random
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--layers', type=int, default=2)
+parser.add_argument('--layers', type=int, default=2) #you can change the number of layers
 
 args = parser.parse_args()
 num_layers = args.layers
 
+st =  time.time() #start time of the computation
+
+##LOADING THE DATA
 def load_instance(n, i, num_targets):
     with open('new_budget_instances/yahoo_' + str(n) + '_' + str(i), 'rb') as f:
         Pfull, wfull = pickle.load(f, encoding='bytes')
@@ -34,25 +38,28 @@ num_instances = 1000
 
 total_instances = 1000
 instances_load = random.sample(range(total_instances), num_instances)
+#Ps = [load_instance(i) for i in tqdm(instances_load)]
+with open('benchmarks_release/budget_allocation_data.pickle', 'rb') as f:
+        Pfull, wfull = pickle.load(f, encoding='bytes')
+Ps= [torch.from_numpy(Pfull[i]).float() for i in instances_load]
 
-Ps = [load_instance(num_items, i, num_targets) for i in instances_load]
+kvals = [5, 10, 20] #budget variation
 
-
-kvals = [5, 10, 20]
-
-opt_vals = {}
-mse_vals = {}
-algs = ['diffopt', 'twostage', 'opt', 'random']
+#Initializing the results dictionnaries
+opt_vals = {} #objective value of its decision evaluated using the true parameters
+mse_vals = {} #MSE
+algs = ['diffopt', 'twostage', 'opt', 'random'] 
 
 for alg in algs:
     opt_vals[alg] = np.zeros((30, len(kvals)))
     mse_vals[alg] = np.zeros((30, len(kvals)))
 
-
+##TRAINING
 activation = 'relu'
 intermediate_size = 200
 
 def make_fc():
+    '''Building the fully connected neural network'''
     if num_layers > 1:
         if activation == 'relu':
             activation_fn = nn.ReLU
@@ -73,6 +80,7 @@ def make_fc():
 
 idx = 0
 for idx in range(30):
+    #All results are averaged over 30 random splits
     print(idx)
     test = random.sample(range(num_instances), int(test_pct*num_instances))
     train = [i for i in range(num_instances) if i not in test]
@@ -91,7 +99,7 @@ for idx in range(30):
     )
     
     data = [torch.from_numpy(true_transform(P).detach().numpy()).float() for P in Ps]
-    f_true = [CoverageInstanceMultilinear(P, w, True) for P in Ps]
+    #f_true = [CoverageInstanceMultilinear(P, w, True) for P in Ps] #TODO: think of another way of storing these, for the class to work well (deprecated)
     
     net = make_fc()
     net_two_stage = make_fc()
@@ -129,7 +137,7 @@ for idx in range(30):
             loss += loss_fn(pred, Ps[i])
         return loss/len(test)
     
-    
+    #Two-stage approach
     print('train two stage')
     for t in range(4001):
         i = random.choice(train)
@@ -139,7 +147,7 @@ for idx in range(30):
         loss.backward()
         optimizer.step()
     mse_vals['twostage'][idx, 0] = get_test_mse(net_two_stage).item()
-            
+      
     for kidx, k in enumerate(kvals):
         optfunc = partial(optimize_coverage_multilinear, w = w, k=k, c = 0.95)
         dgrad = partial(dgrad_coverage, w = w)
@@ -147,23 +155,22 @@ for idx in range(30):
             hessian = partial(hessian_coverage, w = w)
         else:
             hessian = None
-        opt = ContinuousOptimizer(optfunc, dgrad, hessian, 0.95)
-        opt.verbose = False
-        
-        
+
+        opt = ContinuousOptimizer()
+
         def eval_opt(net, instances):
             val = 0.
             for i in instances:
                 pred = net(data[i])
                 x = opt(pred)
-                val += f_true[i](x)
+                val += CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
             return val/len(instances)
         
         def get_opt(instances):
             val = 0.
             for i in instances:
-                x = opt(Ps[i])
-                val += f_true[i](x)
+                x = opt.apply(Ps[i], optfunc, dgrad, False, hessian, 0.95)
+                val += CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
             return val/len(instances)
         
         def get_rand(instances):
@@ -173,7 +180,7 @@ for idx in range(30):
                     x = np.zeros(num_items)
                     x[random.sample(range(num_items), k)] = 1
                     x = torch.from_numpy(x).float()
-                    val += f_true[i](x)
+                    val += CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
             return val/(100*len(instances))
         
         
@@ -185,7 +192,7 @@ for idx in range(30):
             i = random.choice(train)
             pred = net(data[i])
             x = opt(pred)
-            loss = -f_true[i](x)
+            loss = -CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

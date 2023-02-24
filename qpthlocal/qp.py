@@ -136,7 +136,7 @@ class QPSolvers(Enum):
 
 
 class QPFunction(Function):
-    def __init__(self, eps=1e-12, verbose=0, notImprovedLim=3,
+    '''def __init__(self, eps=1e-12, verbose=0, notImprovedLim=3,
                  maxIter=20, solver=QPSolvers.PDIPM_BATCHED, model_params = None, custom_solver=None):
         self.eps = eps
         self.verbose = verbose
@@ -166,9 +166,11 @@ class QPFunction(Function):
             self.equality_constraints = equality_constraints
             self.quadobj = obj
         else:
-            self.model = None
+            self.model = None'''
 
-    def forward(self, Q_, p_, G_, h_, A_, b_):
+    @staticmethod
+    def forward(self, Q_, p_, G_, h_, A_, b_, solver=QPSolvers.PDIPM_BATCHED, model_params=None, custom_solver=None, eps=1e-12, verbose=0, notImprovedLim=3,
+                 maxIter=20):
         """Solve a batch of QPs.
 
         This function solves a batch of QPs, each optimizing over
@@ -218,6 +220,23 @@ class QPFunction(Function):
 
         Returns: \hat z: a (nBatch, nz) Tensor.
         """
+        self.eps = eps
+        self.verbose = verbose
+        self.notImprovedLim = notImprovedLim
+        self.maxIter = maxIter
+        self.solver = solver
+        self.custom_solver = custom_solver
+        
+        if model_params is not None:
+            model, x, inequality_constraints, equality_constraints, obj = model_params
+            self.model = model
+            self.x = x
+            self.inequality_constraints = inequality_constraints
+            self.equality_constraints = equality_constraints
+            self.quadobj = obj
+        else:
+            self.model = None
+
         nBatch = extract_nBatch(Q_, p_, G_, h_, A_, b_)
         Q, _ = expandParam(Q_, nBatch, 3)
         p, _ = expandParam(p_, nBatch, 2)
@@ -326,6 +345,7 @@ class QPFunction(Function):
         self.save_for_backward(zhats, Q_, p_, G_, h_, A_, b_)
         return zhats
 
+    @staticmethod
     def backward(self, dl_dzhat):
         zhats, Q, p, G, h, A, b = self.saved_tensors
         nBatch = extract_nBatch(Q, p, G, h, A, b)
@@ -397,6 +417,7 @@ class SpQPFunction(Function):
         self.nineq, self.nz = Gsz
         self.neq, _ = Asz
 
+    @staticmethod
     def forward(self, Qv, p, Gv, h, Av, b):
         self.nBatch = Qv.size(0)
 
@@ -408,6 +429,7 @@ class SpQPFunction(Function):
         self.save_for_backward(zhats, Qv, p, Gv, h, Av, b)
         return zhats
 
+    @staticmethod
     def backward(self, dl_dzhat):
         zhats, Qv, p, Gv, h, Av, b = self.saved_tensors
 

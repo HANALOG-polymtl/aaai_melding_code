@@ -1,0 +1,12 @@
+torch 
+torchvision 
+torchaudio
+numpy
+scipy
+gurobipy
+numba
+networkx
+tqdm
+scikit-learn
+cvxpy
+qpth
