@@ -2,3 +2,4 @@ benchmarks_release/
 *.pyc
 .DS_Store
 aaai/
+output/

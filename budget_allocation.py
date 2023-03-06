@@ -162,15 +162,15 @@ for idx in range(30):
             val = 0.
             for i in instances:
                 pred = net(data[i])
-                x = opt(pred)
-                val += CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
+                x = opt.apply(pred, optfunc, dgrad, False, hessian, 0.95)
+                val += CoverageInstanceMultilinear().apply(x, Ps[i], w)
             return val/len(instances)
         
         def get_opt(instances):
             val = 0.
             for i in instances:
                 x = opt.apply(Ps[i], optfunc, dgrad, False, hessian, 0.95)
-                val += CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
+                val += CoverageInstanceMultilinear().apply(x, Ps[i], w)
             return val/len(instances)
         
         def get_rand(instances):
@@ -180,7 +180,7 @@ for idx in range(30):
                     x = np.zeros(num_items)
                     x[random.sample(range(num_items), k)] = 1
                     x = torch.from_numpy(x).float()
-                    val += CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
+                    val += CoverageInstanceMultilinear().apply(x, Ps[i], w)
             return val/(100*len(instances))
         
         
@@ -191,8 +191,8 @@ for idx in range(30):
         for t in range(num_iters):
             i = random.choice(train)
             pred = net(data[i])
-            x = opt(pred)
-            loss = -CoverageInstanceMultilinear().apply(x, Ps[i], w, True)
+            x = opt.apply(pred, optfunc, dgrad, False, hessian, 0.95)
+            loss = -CoverageInstanceMultilinear().apply(x, Ps[i], w)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -200,6 +200,6 @@ for idx in range(30):
         mse_vals['diffopt'][idx, kidx] = get_test_mse(net).item()
         for alg in algs:
             print(alg, opt_vals[alg][idx, kidx])
-    pickle.dump(opt_vals, open('evaluation_synthetic_full_{}_opt.pickle'.format(num_layers), 'wb'))
-    pickle.dump(mse_vals, open('evaluation_synthetic_full_{}_mse.pickle'.format(num_layers), 'wb'))
+    pickle.dump(opt_vals, open('output/evaluation_synthetic_full_{}_opt.pickle'.format(num_layers), 'wb'))
+    pickle.dump(mse_vals, open('output/evaluation_synthetic_full_{}_mse.pickle'.format(num_layers), 'wb'))
     

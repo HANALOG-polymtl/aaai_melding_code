@@ -57,7 +57,7 @@ class CoverageInstanceMultilinear(torch.autograd.Function):
         self.w = w'''
 
     @staticmethod    
-    def forward(self, x, P, w, evaluate_forward):
+    def forward(self, x, P, w, evaluate_forward=True):
         self.evaluate_forward = evaluate_forward
         if type(P) != np.ndarray:
             P = P.detach().numpy()
@@ -65,6 +65,7 @@ class CoverageInstanceMultilinear(torch.autograd.Function):
             w = w.detach().numpy()
         self.P = P
         self.w = w
+
         self.x = x.detach().numpy()
         if self.evaluate_forward:
             out = objective_coverage(self.x, self.P, self.w)
@@ -75,7 +76,7 @@ class CoverageInstanceMultilinear(torch.autograd.Function):
     @staticmethod  
     def backward(self, grad_in):
         grad = gradient_coverage(self.x, self.P, self.w)
-        return torch.from_numpy(grad).float()*grad_in.float()
+        return (torch.from_numpy(grad).float()*grad_in.float(), None, None, None)
 
 
 def optimize_coverage_multilinear(P, w, verbose=True, k=10, c=1., minibatch_size = None):
@@ -100,7 +101,7 @@ def optimize_coverage_multilinear(P, w, verbose=True, k=10, c=1., minibatch_size
         if verbose:
             print(t, -loss.item())
         optimizer.zero_grad()
-        loss.backward()
+        loss.backward(retain_graph=True)
         optimizer.step()
         x.data = torch.from_numpy(project(x.data.numpy(), k, 1/c)).float()
     return x
