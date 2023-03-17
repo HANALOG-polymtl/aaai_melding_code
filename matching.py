@@ -1,13 +1,25 @@
+''' Script to perform the matching experiment'''
+
 import torch
 import torch.nn as nn
 import random
 import numpy as np
-from qpthlocal.qp import QPFunction
-from qpthlocal.qp import QPSolvers
-from qpthlocal.qp import make_gurobi_model
+from tqdm import tqdm
+import sklearn.metrics 
+from qpthlocal.qp_gurobi import QPFunction
+from qpthlocal.qp_gurobi import QPSolvers
+from qpthlocal.qp_gurobi import make_gurobi_model
 import pickle
 import argparse
 
+## LOADING THE DATA               
+load = True
+if load:
+    Ps = torch.load('benchmarks_release/cora_graphs_bipartite.pt')
+    data = torch.load('benchmarks_release/cora_features_bipartite.pt')
+    Ps = Ps.view(*Ps.shape, 1)
+
+## USEFUL PARAMETERS 
 parser = argparse.ArgumentParser()
 parser.add_argument('--layers', type=int, default=2) # you can change the number of layers
 
@@ -15,9 +27,35 @@ args = parser.parse_args()
 num_layers = args.layers
 print("Number of layers: ", num_layers)
 
+activation = 'relu'
+intermediate_size=500
+num_features = data.shape[2]
+num_targets = 100
+cuda = False
+loss_fn = nn.BCEWithLogitsLoss()
+#loss_fn = nn.MultiLabelMarginLoss()
+learning_rate = 1e-3
 
+n_instances = data.shape[0]
+
+algs = ['diffopt', 'ce', 'random']
+num_iters = 30
+auc = {}
+ce_loss = {}
+opt = {}
+optimum = []
+
+## RESULT INITIALISATION
+for alg in algs:
+    auc[alg] = np.zeros((num_iters))
+    ce_loss[alg] = np.zeros((num_iters))
+    opt[alg] = np.zeros((num_iters))
+
+## TRAINING
+
+### USEFUL FUNCTIONS
 def make_matching_matrix(n):
-    
+    '''Initializing the matching matrix'''
     lhs = list(range(n))
     rhs = list(range(n, 2*n))
     
@@ -44,41 +82,7 @@ def make_matching_matrix(n):
     
     return A, b
 
-## LOADING THE DATA               
-load = True
-if load:
-    Ps = torch.load('benchmarks_release/cora_graphs_bipartite.pt')
-    data = torch.load('benchmarks_release/cora_features_bipartite.pt')
-    Ps = Ps.view(*Ps.shape, 1)
-
-## TRAINING
-activation = 'relu'
-intermediate_size=500
-num_features = data.shape[2]
-num_targets = 100
-cuda = False
-
-n_instances = data.shape[0]
-
-algs = ['diffopt', 'ce', 'random']
-num_iters = 30
-auc = {}
-ce_loss = {}
-opt = {}
-optimum = []
-for alg in algs:
-    auc[alg] = np.zeros((num_iters))
-    ce_loss[alg] = np.zeros((num_iters))
-    opt[alg] = np.zeros((num_iters))
-
-for iter_idx in range(num_iters): #All results are averaged over 30 random splits
-    test = random.sample(list(range(n_instances)), int(0.2*n_instances))
-    train = [i for i in range(n_instances) if i not in test]
-    two_stage_iters = len(train)
-    #two_stage_iters=1
-    
-        
-    def make_fc(num_layers, num_features, num_targets, regularizers = False):
+def make_fc(num_layers, num_features, num_targets, regularizers = False):
         '''Building the fully connected neural network'''
         if num_layers > 1:
             if activation == 'relu':
@@ -103,32 +107,16 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
         else:
             return nn.Sequential(nn.Linear(num_features, num_targets), nn.Sigmoid())
         
-    net = make_fc(num_layers, num_features = num_features, num_targets = 1, regularizers=False)
-    
-    net_two_stage = make_fc(num_layers, num_features = num_features, num_targets = 1, regularizers=False)
-    cuda = False
-    if cuda:
-    #    Ps = [P.cuda() for P in Ps]
-    #    data = [d.cuda() for d in data]
-        net_two_stage = net_two_stage.cuda()
-    
-    
-    #loss_fn = nn.MultiLabelMarginLoss()
-    loss_fn = nn.BCEWithLogitsLoss()
-    learning_rate = 1e-3
-    optimizer = torch.optim.Adam(net_two_stage.parameters(), lr=learning_rate, weight_decay=0)
-    
-    
-    def get_test_mse(net):
-        loss = 0
-        net.eval()
-        for i in test:
-            pred = net(data[i])
-            loss += loss_fn(pred, Ps[i])
-        net.train()
-        return loss/len(test)
-    
-    def get_train_mse(net):
+def get_test_mse(net, test):
+    loss = 0
+    net.eval()
+    for i in test:
+        pred = net(data[i])
+        loss += loss_fn(pred, Ps[i])
+    net.train()
+    return loss/len(test)
+
+def get_train_mse(net, train):
         loss = 0
         net.eval()
         for i in train:
@@ -136,6 +124,93 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
             loss += loss_fn(pred, Ps[i])
         net.train()
         return loss/len(train)
+
+def get_auc(net):
+        net.eval()
+        aucvals = []
+        for i in test:
+            y_true = Ps[i].detach().numpy().flatten()
+            y_score = nn.Sigmoid()(net(data[i])).detach().numpy().flatten()
+            auc_i = sklearn.metrics.roc_auc_score(y_true, y_score)
+    #        print(auc_i)
+            aucvals.append(auc_i)
+        net.train()
+        return np.mean(aucvals)
+
+def get_loss(net, data, c_true, model_params, Q, G, h, eval_mode = True):
+        if eval_mode:
+            net.eval()
+        c_pred = -nn.Sigmoid()(net(data))
+        if c_pred.dim() == 3:
+            n_train = data.shape[0]
+        else:
+            n_train = 1
+        c_pred = c_pred.squeeze()
+    #    print(n_train)
+    #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+    #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        x = QPFunction(verbose=-1, check_Q_spd=False, solver=QPSolvers.GUROBI, model_params=model_params)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        #x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
+    #    return x
+        loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
+        net.train()
+        return loss
+
+def get_loss_random(data, c_true, model_params, Q, G, h):
+        c_pred = -torch.rand_like(c_true)
+        if c_pred.dim() == 3:
+            n_train = data.shape[0]
+        else:
+            n_train = 1
+        c_pred = c_pred.squeeze()
+    #    print(n_train)
+    #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+    #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        x = QPFunction(verbose=-1, check_Q_spd=False, solver=QPSolvers.GUROBI, model_params=model_params)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        #QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
+    #    return x
+        loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
+        return loss
+    
+def get_loss_opt(data, c_true, model_params, Q, G, h):
+#        c_pred = -torch.rand_like(c_true)
+    c_pred = -c_true
+    if c_pred.dim() == 3:
+        n_train = data.shape[0]
+    else:
+        n_train = 1
+    c_pred = c_pred.squeeze()
+#    print(n_train)
+#    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+#    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+    x = QPFunction(verbose=-1, check_Q_spd=False, solver=QPSolvers.GUROBI, model_params=model_params)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
+        
+    #x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
+#    return x
+#        print(x)
+#        print(x.sum())
+    loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
+    return loss
+
+### TRAINING LOOP
+#All results are averaged over 30 random splits
+for iter_idx in tqdm(range(num_iters)): 
+    ###TRAIN TEST RANDOM SPLIT
+    test = random.sample(list(range(n_instances)), int(0.2*n_instances))
+    train = [i for i in range(n_instances) if i not in test]
+    two_stage_iters = len(train)
+    #two_stage_iters=1
+
+    ###BUILD FC NETWORKS FOR THE 2 METHODS
+    net = make_fc(num_layers, num_features = num_features, num_targets = 1, regularizers=False)
+    net_two_stage = make_fc(num_layers, num_features = num_features, num_targets = 1, regularizers=False)
+    cuda = False
+    if cuda:
+    #    Ps = [P.cuda() for P in Ps]
+    #    data = [d.cuda() for d in data]
+        net_two_stage = net_two_stage.cuda()
+    
+    optimizer = torch.optim.Adam(net_two_stage.parameters(), lr=learning_rate, weight_decay=0)
     
     #for epoch in range(two_stage_iters):
     #    print(epoch)
@@ -163,8 +238,8 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
 #            print(idx)
             if verbose and idx % 10 == 0:
                 net.eval()
-                print('Train MSE', get_train_mse(net_two_stage).item())
-                print('Test MSE', get_test_mse(net_two_stage).item())
+                print('Train MSE', get_train_mse(net_two_stage, train).item())
+                print('Test MSE', get_test_mse(net_two_stage, test).item())
                 net.train()
             
             if cuda:
@@ -183,20 +258,6 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-        
-    import sklearn.metrics 
-    
-    def get_auc(net):
-        net.eval()
-        aucvals = []
-        for i in test:
-            y_true = Ps[i].detach().numpy().flatten()
-            y_score = nn.Sigmoid()(net(data[i])).detach().numpy().flatten()
-            auc_i = sklearn.metrics.roc_auc_score(y_true, y_score)
-    #        print(auc_i)
-            aucvals.append(auc_i)
-        net.train()
-        return np.mean(aucvals)
     
     auc['ce'][iter_idx] = get_auc(net_two_stage)
 #    print(auc['ce'][iter_idx])
@@ -210,58 +271,6 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
     A, b = make_matching_matrix(50)
     A = torch.from_numpy(A).float()
     b = torch.from_numpy(b).float()
-    
-    def get_loss(net, data, c_true, model_params, Q, G, h, eval_mode = True):
-        if eval_mode:
-            net.eval()
-        c_pred = -nn.Sigmoid()(net(data))
-        if c_pred.dim() == 3:
-            n_train = data.shape[0]
-        else:
-            n_train = 1
-        c_pred = c_pred.squeeze()
-    #    print(n_train)
-    #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-    #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-        x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
-    #    return x
-        loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
-        net.train()
-        return loss
-    
-    def get_loss_random(data, c_true, model_params, Q, G, h):
-        c_pred = -torch.rand_like(c_true)
-        if c_pred.dim() == 3:
-            n_train = data.shape[0]
-        else:
-            n_train = 1
-        c_pred = c_pred.squeeze()
-    #    print(n_train)
-    #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-    #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-        x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
-    #    return x
-        loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
-        return loss
-    
-    def get_loss_opt(data, c_true, model_params, Q, G, h):
-#        c_pred = -torch.rand_like(c_true)
-        c_pred = -c_true
-        if c_pred.dim() == 3:
-            n_train = data.shape[0]
-        else:
-            n_train = 1
-        c_pred = c_pred.squeeze()
-    #    print(n_train)
-    #    x_1 = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-    #    x = QPFunction(verbose=False, solver=QPSolvers.GUROBI)(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor())
-        x = QPFunction().apply(Q.expand(n_train, *Q.shape), c_pred, G.expand(n_train, *G.shape), h.expand(n_train, *h.shape), torch.Tensor(), torch.Tensor(), QPSolvers.GUROBI, model_params)
-    #    return x
-#        print(x)
-#        print(x.sum())
-        loss = (c_true.view(c_true.shape[0], 1, c_true.shape[1])@x.view(*x.shape, 1)).mean()
-        return loss
-
     
     gamma = 0.1
     #loss_ts = get_loss(net_two_stage, data[[0]], Ps[[0]], torch.zeros(A.shape[1], A.shape[1]), A, b)
@@ -285,10 +294,20 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
         print(epoch)
         random.shuffle(train)
         for i in train:
+            # Compute and print loss
             loss = -get_loss(net, data[[i]], Ps[[i]], model_params_quad, gamma*torch.eye(A.shape[1]), A, b, eval_mode=False)
-#            print(loss)
+
+            # Before the backward pass, use the optimizer object to zero all of the
+            # gradients for the variables it will update (which are the learnable weights
+            # of the model)
             optimizer.zero_grad()
+
+            # Backward pass: compute gradient of the loss with respect to model
+            # parameters
             loss.backward()
+
+             # Calling the step function on an Optimizer makes an update to its
+            # parameters
             optimizer.step()
         gamma *= 0.8
         print(gamma)
@@ -300,8 +319,8 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
     opt['diffopt'][iter_idx] = loss_diffopt.item()
     auc['diffopt'][iter_idx] = get_auc(net)
     opt['random'][iter_idx] = loss_random.item()
-    ce_loss['diffopt'][iter_idx] = get_test_mse(net).item()
-    ce_loss['ce'][iter_idx] = get_test_mse(net_two_stage).item()
+    ce_loss['diffopt'][iter_idx] = get_test_mse(net, test).item()
+    ce_loss['ce'][iter_idx] = get_test_mse(net_two_stage, test).item()
     
     print('OPT: {0} {1} {2}'.format(opt['diffopt'][iter_idx], opt['ce'][iter_idx], opt['random'][iter_idx]))
     print('AUC: {0} {1}'.format(auc['diffopt'][iter_idx], auc['ce'][iter_idx]))
@@ -310,5 +329,5 @@ for iter_idx in range(num_iters): #All results are averaged over 30 random split
 #    torch.save(net.state_dict(), 'cora_diffopt_1.pt')
 #    torch.save(net_two_stage.state_dict(), 'cora_ts_1.pt')
     
-    pickle.dump((opt, auc, ce_loss), open('results_cora_{}_cameraready.pickle'.format(num_layers), 'wb'))
+    pickle.dump((opt, auc, ce_loss), open('output/results_cora_{}_cameraready.pickle'.format(num_layers), 'wb'))
 #print('average optimum', np.mean(optimum))

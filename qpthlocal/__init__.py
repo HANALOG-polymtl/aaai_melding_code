@@ -1,4 +1,3 @@
-__all__ = ['qp', 'util', 'solvers']
+__all__ = ['qp_gurobi', 'util']
 
-from . import qp
-from . import solvers
+from . import qp_gurobi

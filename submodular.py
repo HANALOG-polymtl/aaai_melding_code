@@ -100,15 +100,6 @@ class ContinuousOptimizer(torch.autograd.Function):
     that optimal x wrt the parameters.
     """
     
-    '''def __init__(self, optimize_func, get_dgradf_dparams, verbose=True, get_hessian=None, max_x = 1.):
-        super(ContinuousOptimizer, self).__init__()
-        self.optimize_func = optimize_func
-        self.get_dgradf_dparams = get_dgradf_dparams
-        self.verbose = verbose
-        self.get_hessian = get_hessian
-        self.all_xs = []
-        self.max_x = max_x'''
-    
     @staticmethod
     def forward(self, params, optimize_func, get_dgradf_dparams, verbose=True, get_hessian=None, max_x = 1.):
         """
@@ -142,5 +133,3 @@ class ContinuousOptimizer(torch.autograd.Function):
         dxdr_t = torch.from_numpy(np.transpose(dxdr))
         out = torch.mm(dxdr_t.float(), grad_output.view(len(x), 1)) 
         return (out.view_as(params), None, None, None, None, None)
-    
-    #@staticmethod
